@@ -70,7 +70,7 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 Requires Ghidra `12.1.4`.
 
 For this fork's added functionality, build the extension from this checkout using the
-**Building from Source** instructions below and install `target/GhidraMCP-0.9.0.zip`.
+**Building from Source** instructions below and install `target/GhidraMCP-0.9.1.zip`.
 The original project's releases do not include this fork's changes.
 
 1. Download the latest release `zip` file from the
@@ -325,7 +325,7 @@ The steps below are only for building from source.
    - The manual "Dependency Maintenance" GitHub workflow validates dependency and Ghidra update candidates without opening bot PRs
 
 4. The installable `zip` file is written to `target/` (for example,
-   `target/GhidraMCP-0.9.0.zip`). Install it using the steps above.
+   `target/GhidraMCP-0.9.1.zip`). Install it using the steps above.
 
 ### Optional: Install Local Pre-commit Checks
 

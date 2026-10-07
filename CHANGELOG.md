@@ -7,6 +7,19 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-07
+
+First extended-fork release, forked from [the original GhidraMCP repository](https://github.com/themixednuts/GhidraMCP).
+
+### Added
+- **Program lifecycle** - `programs.import_program`, `import_directory`, `open_program` and `close_program`; directory imports report each file and partial cancellation, and closing refuses unsaved or temporary programs.
+- **Analysis and identity** - `project.analysis_status` exposes current activity without claiming past success; `programs.binary_identity` exposes recorded import hash and provenance with explicit missing/invalid fields.
+- **Findings export** - `findings.export_findings` writes bounded, versioned JSON containing selected functions, signatures, comments, structures and binary identity; overwriting requires explicit opt-in.
+- **Explicit function comparison** - `findings.compare_function` compares selected entries in different programs, with both snapshots, exact observations and explicit unknown results. No semantic equivalence or ABI compatibility is inferred.
+
+### Fixed
+- **Portable integration tests** - Test JVMs use an English locale to avoid Ghidra's Version Tracking decimal format/parse failure under comma-decimal locales. Application locale is unchanged.
+
 ## [0.9.0] - 2026-09-22
 
 ### Added
