@@ -7,6 +7,7 @@ import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.models.OperationResult;
 import com.themixednuts.ui.GhidraUiCoordinator;
 import com.themixednuts.ui.NavigateToAddressEffect;
+import com.themixednuts.utils.AnalysisStatusReader;
 import com.themixednuts.utils.OpaqueCursorCodec;
 import com.themixednuts.utils.PaginatedResult;
 import com.themixednuts.utils.jsonschema.JsonSchema;
@@ -38,12 +39,14 @@ import reactor.core.publisher.Mono;
     name = "Project",
     description =
         "Project-level operations: list analysis options, run analysis, save, navigation,"
-            + " image rebasing, undo/redo, and transaction history.",
+            + " analysis status, image rebasing, undo/redo, and transaction history.",
     mcpName = "project",
     mcpDescription =
         """
         Operate on an open Ghidra program: list_analysis_options, run_analysis, save, go_to_address,
-        rebase, undo, redo, or history. Pass file_name. list_analysis_options returns paged rows.
+        rebase, undo, redo, history, or analysis_status. Pass file_name. analysis_status reports
+        current activity; inactive and the analyzed flag do not prove successful completion.
+        Last-run completion/cancellation is unknown. list_analysis_options returns paged rows.
         rebase changes the program image base. For program lists or metadata, read the
         ghidra://programs or ghidra://program/{name}/info resource.
         """)
@@ -55,6 +58,7 @@ public class ProjectTool extends BaseMcpTool {
   private static final String ACTION_LIST_ANALYSIS_OPTIONS = "list_analysis_options";
   private static final String ACTION_GO_TO_ADDRESS = "go_to_address";
   private static final String ACTION_RUN_ANALYSIS = "run_analysis";
+  private static final String ACTION_ANALYSIS_STATUS = "analysis_status";
   private static final String ACTION_SAVE = "save";
   private static final String ACTION_REBASE = "rebase";
   private static final String ACTION_UNDO = "undo";
@@ -82,6 +86,7 @@ public class ProjectTool extends BaseMcpTool {
                 ACTION_LIST_ANALYSIS_OPTIONS,
                 ACTION_GO_TO_ADDRESS,
                 ACTION_RUN_ANALYSIS,
+                ACTION_ANALYSIS_STATUS,
                 ACTION_SAVE,
                 ACTION_REBASE,
                 ACTION_UNDO,
@@ -154,6 +159,13 @@ public class ProjectTool extends BaseMcpTool {
 
     // Conditional requirements based on action
     schemaRoot.allOf(
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION,
+                        SchemaBuilder.string(mapper).constValue(ACTION_ANALYSIS_STATUS)),
+                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_FILE_NAME)),
         // action=list_analysis_options requires file_name
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
@@ -226,6 +238,8 @@ public class ProjectTool extends BaseMcpTool {
                 case ACTION_LIST_ANALYSIS_OPTIONS -> handleListAnalysisOptions(program, args);
                 case ACTION_GO_TO_ADDRESS -> handleGoToAddress(program, args, tool);
                 case ACTION_RUN_ANALYSIS -> handleRunAnalysis(program);
+                case ACTION_ANALYSIS_STATUS ->
+                    Mono.fromCallable(() -> AnalysisStatusReader.read(program));
                 case ACTION_SAVE -> handleSave(program);
                 case ACTION_REBASE -> handleRebase(program, args);
                 case ACTION_UNDO -> handleUndo(program, args);
@@ -257,6 +271,7 @@ public class ProjectTool extends BaseMcpTool {
                               ACTION_LIST_ANALYSIS_OPTIONS,
                               ACTION_GO_TO_ADDRESS,
                               ACTION_RUN_ANALYSIS,
+                              ACTION_ANALYSIS_STATUS,
                               ACTION_SAVE,
                               ACTION_REBASE,
                               ACTION_UNDO,

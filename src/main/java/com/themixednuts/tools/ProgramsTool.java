@@ -14,18 +14,19 @@ import reactor.core.publisher.Mono;
 /** Project program lifecycle, independent of an already-open program. */
 @GhidraMcpTool(
     name = "Programs",
-    description = "Import local binaries into the active project and open project programs.",
+    description = "Import and open project programs, or inspect their recorded binary identity.",
     mcpName = "programs",
     openWorldHint = true,
     mcpDescription =
         """
-        Import or open programs in the active Ghidra project. import_program requires path (an
-        absolute file path on the Ghidra host); optional name and project_folder select the saved
-        program name and existing destination folder. Imports save only the primary program,
-        without opening or analyzing it. Existing files are never overwritten; naming conflicts
-        receive a unique suffix. open_program requires file_name (a unique name or absolute project
-        path) and makes the program active in the current CodeBrowser. Read ghidra://programs for
-        saved paths. Use project.run_analysis separately. Not supported inside batch_operations.
+        Manage programs in the active project. import_program requires an absolute host-local
+        path; optional name and project_folder select the name and existing folder. Saves only
+        the primary program, without opening or analyzing; conflicts get a unique suffix.
+        open_program requires file_name (unique name or absolute project path) and activates it
+        in CodeBrowser. binary_identity requires file_name and returns recorded import SHA-256,
+        original path, architecture, compiler and current imagebase; it does not verify the source
+        file. Missing/invalid metadata is explicit. Read ghidra://programs for paths and use
+        project.run_analysis separately. Not supported inside batch_operations.
         """)
 public class ProgramsTool extends BaseMcpTool {
   private final ProgramLifecycleSupport lifecycle;
@@ -44,7 +45,7 @@ public class ProgramsTool extends BaseMcpTool {
     root.property(
         ARG_ACTION,
         SchemaBuilder.string(mapper)
-            .enumValues("import_program", "open_program")
+            .enumValues("import_program", "open_program", "binary_identity")
             .description("Program lifecycle operation."));
     root.property(
         ARG_PATH,
@@ -65,9 +66,16 @@ public class ProgramsTool extends BaseMcpTool {
         ARG_FILE_NAME,
         SchemaBuilder.string(mapper)
             .description(
-                "Unique program name or absolute project path; required for open_program."));
+                "Unique program name or absolute project path; required for open_program and"
+                    + " binary_identity."));
     root.requiredProperty(ARG_ACTION);
     root.allOf(
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION, SchemaBuilder.string(mapper).constValue("binary_identity")),
+                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_FILE_NAME)),
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
                 SchemaBuilder.objectDraft7(mapper)
@@ -104,11 +112,19 @@ public class ProgramsTool extends BaseMcpTool {
                   "programs.open_program",
                   monitor -> lifecycle.openProgram(getActiveProject(), fileName, tool, monitor));
             }
+            case "binary_identity" -> {
+              String fileName = getRequiredStringArgument(args, ARG_FILE_NAME);
+              yield withTaskMonitor(
+                  "programs.binary_identity",
+                  monitor -> lifecycle.binaryIdentity(getActiveProject(), fileName, monitor));
+            }
             default ->
                 Mono.error(
                     new GhidraMcpException(
                         com.themixednuts.utils.GhidraMcpErrorUtils.invalidAction(
-                            action, List.of("import_program", "open_program"), Map.of())));
+                            action,
+                            List.of("import_program", "open_program", "binary_identity"),
+                            Map.of())));
           };
         });
   }

@@ -20,7 +20,7 @@ If your browser/GitHub blocks custom URI handlers, use the web fallback:
 > Connect Ghidra to MCP-compatible clients
 
 Forked from [the original GhidraMCP repository](https://github.com/themixednuts/GhidraMCP).
-This fork adds program import and opening through MCP. Original authorship and the MIT license
+This fork adds program import, opening, analysis status and binary identity through MCP. Original authorship and the MIT license
 are retained; upstream release badges above refer to the original project.
 
 Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-server)
@@ -133,7 +133,46 @@ API references: [ProgramLoader](https://ghidra.re/ghidra_docs/api/ghidra/app/uti
 [Loaded.save](https://ghidra.re/ghidra_docs/api/ghidra/app/util/opinion/Loaded.html),
 and [ProgramManager](https://ghidra.re/ghidra_docs/api/ghidra/app/services/ProgramManager.html).
 
+### Analysis status and binary identity (stage 1)
+
+Read current analysis activity with the `project` tool:
+
+```json
+{"action":"analysis_status","file_name":"client.dll"}
+```
+
+`state` is `running` (executing or scheduled), `inactive` (an existing manager reports
+no activity), or `unknown` (no usable manager). The query does not create an analysis
+manager or start analysis. `analyzed_flag` is Ghidra's recorded flag: `true`, `false`,
+or `null` when absent. Neither `inactive` nor this flag proves that the latest run
+completed or all analyzers succeeded. Ghidra has no queryable last-run history here,
+so `last_run_outcome` remains `unknown`, including after a cancellation. The response
+includes `observed_at` in UTC; it is a transient observation, not a readiness guarantee.
+
+Read import identity and current program configuration with the `programs` tool:
+
+```json
+{"action":"binary_identity","file_name":"/client.dll"}
+```
+
+The versioned response includes the recorded import `sha256`, original `executable_path`,
+format, language, processor, endianness, address size **in bits**, compiler specification,
+and **current** imagebase. `sha256_status` distinguishes `available`, `missing` and
+`invalid`; invalid recorded text is preserved rather than silently corrected. Missing
+metadata is `null` and listed in `missing_fields`. A valid hash is normalized to lowercase.
+`hash_source` is `program_database_import_metadata`; `original_file_verified` is `false`.
+No source file is read or rehashed: its contents may have changed since import, and patched
+program memory has a different identity. The action also works for project programs that
+are not open in CodeBrowser, without automatically upgrading the database.
+
+The existing `ghidra://program/{name}/info` resource reuses the same metadata reader
+and adds `binaryIdentity` while retaining its existing top-level field names.
+
+API references: [Program metadata](https://ghidra.re/ghidra_docs/api/ghidra/program/model/listing/Program.html)
+and [Ghidra 12.1.4 analysis manager](https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_12.1.4_build/Ghidra/Features/Base/src/main/java/ghidra/app/plugin/core/analysis/AutoAnalysisManager.java).
+
 ### Server settings
+
 
 The GhidraMCP server can be configured through Ghidra's application-level
 settings:
@@ -156,7 +195,7 @@ The steps below are only for building from source.
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/themixednuts/GhidraMCP.git
+   git clone https://github.com/jd0e1337/ghidra-mcp-extended.git
    ```
 2. Ensure you have JDK 21 or later installed.
 3. Build the project with `just`:

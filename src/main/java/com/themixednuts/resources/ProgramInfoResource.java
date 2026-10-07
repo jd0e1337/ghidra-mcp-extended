@@ -1,6 +1,7 @@
 package com.themixednuts.resources;
 
 import com.themixednuts.annotation.GhidraMcpResource;
+import com.themixednuts.utils.ProgramMetadataReader;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.MemoryBlock;
@@ -37,21 +38,21 @@ public class ProgramInfoResource extends BaseMcpResource {
           Program program = getProgramByName(programName);
           try {
             Map<String, Object> info = new LinkedHashMap<>();
+            var identity = ProgramMetadataReader.readIdentity(program);
             info.put("programName", programName);
-            info.put("language", program.getLanguageID().toString());
-            info.put("compilerSpec", program.getCompilerSpec().getCompilerSpecID().toString());
-            info.put("processor", program.getLanguage().getProcessor().toString());
-            info.put("endian", program.getLanguage().isBigEndian() ? "big" : "little");
-            info.put("addressSize", program.getAddressFactory().getDefaultAddressSpace().getSize());
+            info.put("language", identity.languageId());
+            info.put("compilerSpec", identity.compilerSpecId());
+            info.put("processor", identity.processor());
+            info.put("endian", identity.endian());
+            info.put("addressSize", identity.addressSizeBits());
             info.put(
                 "executableFormat",
-                program.getExecutableFormat() != null ? program.getExecutableFormat() : "unknown");
+                identity.executableFormat() != null ? identity.executableFormat() : "unknown");
             info.put(
                 "executablePath",
-                program.getExecutablePath() != null ? program.getExecutablePath() : "unknown");
-            info.put(
-                "imageBase",
-                program.getImageBase() != null ? program.getImageBase().toString() : null);
+                identity.executablePath() != null ? identity.executablePath() : "unknown");
+            info.put("imageBase", identity.imageBase());
+            info.put("binaryIdentity", identity);
 
             Date creationDate = program.getCreationDate();
             if (creationDate != null) {

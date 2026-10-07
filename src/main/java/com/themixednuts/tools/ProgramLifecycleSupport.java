@@ -1,8 +1,10 @@
 package com.themixednuts.tools;
 
 import com.themixednuts.exceptions.GhidraMcpException;
+import com.themixednuts.models.BinaryIdentity;
 import com.themixednuts.models.GhidraMcpError;
 import com.themixednuts.utils.GhidraStateUtils;
+import com.themixednuts.utils.ProgramMetadataReader;
 import ghidra.app.services.ProgramManager;
 import ghidra.app.util.importer.ProgramLoader;
 import ghidra.app.util.opinion.LoadResults;
@@ -22,6 +24,23 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Ghidra import ownership and the handoff from worker-loaded programs to the UI. */
 class ProgramLifecycleSupport {
+  BinaryIdentity binaryIdentity(Project project, String fileName, TaskMonitor monitor)
+      throws Exception {
+    DomainFile file = resolveProgram(project, fileName);
+    monitor.checkCancelled();
+    Object consumer = new Object();
+    DomainObject object = file.getDomainObject(consumer, false, false, monitor);
+    try {
+      if (!(object instanceof Program program)) {
+        throw invalid("file_name", fileName, "must identify a Program");
+      }
+      monitor.checkCancelled();
+      return ProgramMetadataReader.readIdentity(program);
+    } finally {
+      if (object != null) object.release(consumer);
+    }
+  }
+
   Map<String, Object> importProgram(
       Project project, String sourcePath, String name, String folder, TaskMonitor monitor)
       throws Exception {

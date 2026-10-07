@@ -170,6 +170,30 @@ class ProgramLifecycleSupportTest {
         CancelledException.class, () -> support.openProgram(project, "/client.dll", tool, monitor));
   }
 
+  @Test
+  void identityReleasesTemporaryOwnershipEvenWhenMetadataReadFails() throws Exception {
+    Program program = mock(Program.class);
+    DomainFile file = programFile("/client.dll");
+    when(data.getFile("/client.dll")).thenReturn(file);
+    when(file.getDomainObject(any(), eq(false), eq(false), same(monitor))).thenReturn(program);
+    when(program.getExecutableSHA256())
+        .thenThrow(new IllegalStateException("metadata unavailable"));
+    assertThrows(
+        IllegalStateException.class, () -> support.binaryIdentity(project, "/client.dll", monitor));
+    verify(program).release(any());
+  }
+
+  @Test
+  void identityCanReadAnUnopenedProjectProgramWithoutUiServices() throws Exception {
+    Program program = mock(Program.class);
+    DomainFile file = programFile("/client.dll");
+    when(data.getFile("/client.dll")).thenReturn(file);
+    when(file.getDomainObject(any(), eq(false), eq(false), same(monitor))).thenReturn(program);
+    when(program.getExecutableSHA256()).thenReturn("a".repeat(64));
+    assertEquals("a".repeat(64), support.binaryIdentity(project, "/client.dll", monitor).sha256());
+    verify(program).release(any());
+  }
+
   private DomainFile programFile(String path) {
     DomainFile file = mock(DomainFile.class);
     when(file.getName()).thenReturn(path.substring(path.lastIndexOf('/') + 1));
