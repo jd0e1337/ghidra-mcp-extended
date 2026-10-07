@@ -20,7 +20,7 @@ If your browser/GitHub blocks custom URI handlers, use the web fallback:
 > Connect Ghidra to MCP-compatible clients
 
 Forked from [the original GhidraMCP repository](https://github.com/themixednuts/GhidraMCP).
-This fork adds program import, opening, analysis status and binary identity through MCP. Original authorship and the MIT license
+This fork adds program and directory import, opening/closing, analysis status and binary identity through MCP. Original authorship and the MIT license
 are retained; upstream release badges above refer to the original project.
 
 Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-server)
@@ -170,6 +170,50 @@ and adds `binaryIdentity` while retaining its existing top-level field names.
 
 API references: [Program metadata](https://ghidra.re/ghidra_docs/api/ghidra/program/model/listing/Program.html)
 and [Ghidra 12.1.4 analysis manager](https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_12.1.4_build/Ghidra/Features/Base/src/main/java/ghidra/app/plugin/core/analysis/AutoAnalysisManager.java).
+
+### Directory import and closing programs (stage 2)
+
+Call `programs` to import matching files from a local directory:
+
+```json
+{"action":"import_directory","path":"E:\\binaries","file_pattern":"*.dll","recursive":false,"max_files":100,"project_folder":"/"}
+```
+
+The default filename glob is `*`, recursion defaults to `false`, and glob case sensitivity
+follows the host filesystem. Symbolic links are not followed. All matching primary programs
+are imported into the existing destination folder; subdirectory structure is not recreated.
+Discovery finishes before imports begin. `max_files` defaults to 100 (maximum 500), and
+discovery examines at most 10,000 entries. Exceeding either limit fails before any import.
+Filesystem discovery failures also abort before importing; select a smaller or accessible directory.
+
+The response contains `files` with `source_path`, `status`, actual saved `project_path`,
+`existing_name_path` and an error `message` where applicable. A name collision is reported
+and handled by the existing single-file importer with a unique suffix; imports are not
+deduplicated by content. One failed file does not prevent the remaining files from importing.
+`imported_count` and `failed_count` summarize the report; a successful MCP response does not
+mean every file imported. Opening and analysis remain separate operations.
+
+Cancellation preserves completed imports. Remaining discovered files are `not_processed`.
+If a file is interrupted during import, it is `cancelled_outcome_unknown`: inspect the project
+before retrying, because saving may already have occurred. `cancelled` and
+`enumeration_complete` distinguish a partial discovery from a cancelled import sequence.
+The report does not list files that had not been discovered when discovery was cancelled.
+
+Close a program in the current CodeBrowser using:
+
+```json
+{"action":"close_program","file_name":"/client.dll"}
+```
+
+This action does not reopen a closed program and returns `already_closed` when appropriate.
+It refuses unsaved changes, temporary programs and active modifications. The unchanged check
+and close run under a modification lock on the Swing thread; temporary ownership keeps the
+program alive until the lock is released. No save/discard choice is exposed and no save dialog
+is opened. `closed` is returned only after checking that ProgramManager no longer lists it.
+Programs held by other tools remain owned by those tools.
+
+API references: [ProgramManager.closeProgram](https://ghidra.re/ghidra_docs/api/ghidra/app/services/ProgramManager.html)
+and [DomainObject modification locks](https://ghidra.re/ghidra_docs/api/ghidra/framework/model/DomainObject.html).
 
 ### Server settings
 

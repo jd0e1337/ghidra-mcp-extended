@@ -20,6 +20,8 @@ class ProgramsToolTest {
             Map.of("action", "import_program"),
             Map.of("action", "open_program"),
             Map.of("action", "binary_identity"),
+            Map.of("action", "import_directory"),
+            Map.of("action", "close_program"),
             Map.of("action", "wrong"))) {
       assertThrows(GhidraMcpException.class, () -> tool.execute(null, args, null).block());
     }

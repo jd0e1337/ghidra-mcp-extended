@@ -19,17 +19,19 @@ import reactor.core.publisher.Mono;
     openWorldHint = true,
     mcpDescription =
         """
-        Manage programs in the active project. import_program requires an absolute host-local
-        path; optional name and project_folder select the name and existing folder. Saves only
-        the primary program, without opening or analyzing; conflicts get a unique suffix.
-        open_program requires file_name (unique name or absolute project path) and activates it
-        in CodeBrowser. binary_identity requires file_name and returns recorded import SHA-256,
-        original path, architecture, compiler and current imagebase; it does not verify the source
-        file. Missing/invalid metadata is explicit. Read ghidra://programs for paths and use
-        project.run_analysis separately. Not supported inside batch_operations.
+        Manage project programs. import_program requires an absolute host-local file path;
+        optional name and project_folder select the saved name and existing folder. import_directory
+        takes a directory path, file_pattern glob, recursive and max_files (default 100, max 500).
+        Imports save primary programs without opening/analyzing, never overwrite, and report each
+        file and partial cancellation. open_program activates file_name (unique name or project
+        path). close_program closes file_name only when unchanged; no save/discard dialog.
+        binary_identity reads recorded import hash and current architecture; missing/invalid values
+        are explicit, source files are not verified. Use ghidra://programs and project.run_analysis.
+        Not supported inside batch_operations.
         """)
 public class ProgramsTool extends BaseMcpTool {
   private final ProgramLifecycleSupport lifecycle;
+  private final DirectoryImportSupport directoryImports;
 
   public ProgramsTool() {
     this(new ProgramLifecycleSupport());
@@ -37,6 +39,7 @@ public class ProgramsTool extends BaseMcpTool {
 
   ProgramsTool(ProgramLifecycleSupport lifecycle) {
     this.lifecycle = lifecycle;
+    this.directoryImports = new DirectoryImportSupport(lifecycle);
   }
 
   @Override
@@ -45,13 +48,38 @@ public class ProgramsTool extends BaseMcpTool {
     root.property(
         ARG_ACTION,
         SchemaBuilder.string(mapper)
-            .enumValues("import_program", "open_program", "binary_identity")
+            .enumValues(
+                "import_program",
+                "open_program",
+                "binary_identity",
+                "import_directory",
+                "close_program")
             .description("Program lifecycle operation."));
     root.property(
         ARG_PATH,
         SchemaBuilder.string(mapper)
             .description(
-                "Absolute local binary path on the machine running Ghidra; import_program only."));
+                "Absolute local file or directory path on the Ghidra host; required for imports."));
+    root.property(
+        "file_pattern",
+        SchemaBuilder.string(mapper)
+            .description(
+                "Filename glob for import_directory; default *; host filesystem case rules"
+                    + " apply."));
+    root.property(
+        "recursive",
+        SchemaBuilder.bool(mapper)
+            .description(
+                "Include subdirectories in import_directory; default false; symlinks are not"
+                    + " followed."));
+    root.property(
+        "max_files",
+        SchemaBuilder.integer(mapper)
+            .minimum(1)
+            .maximum(DirectoryImportSupport.MAX_FILES)
+            .description(
+                "Maximum matching files for import_directory; default 100. Exceeding it fails"
+                    + " before import."));
     root.property(
         ARG_NAME,
         SchemaBuilder.string(mapper)
@@ -60,16 +88,26 @@ public class ProgramsTool extends BaseMcpTool {
     root.property(
         "project_folder",
         SchemaBuilder.string(mapper)
-            .description(
-                "Existing absolute project folder path; default: /; import_program only."));
+            .description("Existing absolute project folder path for imports; default: /."));
     root.property(
         ARG_FILE_NAME,
         SchemaBuilder.string(mapper)
             .description(
                 "Unique program name or absolute project path; required for open_program and"
-                    + " binary_identity."));
+                    + " binary_identity and close_program."));
     root.requiredProperty(ARG_ACTION);
     root.allOf(
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(
+                        ARG_ACTION, SchemaBuilder.string(mapper).constValue("import_directory")),
+                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_PATH)),
+        SchemaBuilder.objectDraft7(mapper)
+            .ifThen(
+                SchemaBuilder.objectDraft7(mapper)
+                    .property(ARG_ACTION, SchemaBuilder.string(mapper).constValue("close_program")),
+                SchemaBuilder.objectDraft7(mapper).requiredProperty(ARG_FILE_NAME)),
         SchemaBuilder.objectDraft7(mapper)
             .ifThen(
                 SchemaBuilder.objectDraft7(mapper)
@@ -97,6 +135,26 @@ public class ProgramsTool extends BaseMcpTool {
         () -> {
           String action = getRequiredStringArgument(args, ARG_ACTION).toLowerCase(Locale.ROOT);
           return switch (action) {
+            case "import_directory" -> {
+              String path = getRequiredStringArgument(args, ARG_PATH);
+              String pattern = getOptionalStringArgument(args, "file_pattern").orElse("*");
+              boolean recursive = getOptionalBooleanArgument(args, "recursive").orElse(false);
+              int limit =
+                  getBoundedIntArgumentOrDefault(
+                      args, "max_files", 100, 1, DirectoryImportSupport.MAX_FILES);
+              String folder = getOptionalStringArgument(args, "project_folder").orElse("/");
+              yield withTaskMonitor(
+                  "programs.import_directory",
+                  monitor ->
+                      directoryImports.importDirectory(
+                          getActiveProject(), path, pattern, recursive, limit, folder, monitor));
+            }
+            case "close_program" -> {
+              String fileName = getRequiredStringArgument(args, ARG_FILE_NAME);
+              yield withTaskMonitor(
+                  "programs.close_program",
+                  monitor -> lifecycle.closeProgram(getActiveProject(), fileName, tool, monitor));
+            }
             case "import_program" -> {
               String path = getRequiredStringArgument(args, ARG_PATH);
               String name = getOptionalStringArgument(args, ARG_NAME).orElse(null);
@@ -123,7 +181,12 @@ public class ProgramsTool extends BaseMcpTool {
                     new GhidraMcpException(
                         com.themixednuts.utils.GhidraMcpErrorUtils.invalidAction(
                             action,
-                            List.of("import_program", "open_program", "binary_identity"),
+                            List.of(
+                                "import_program",
+                                "open_program",
+                                "binary_identity",
+                                "import_directory",
+                                "close_program"),
                             Map.of())));
           };
         });

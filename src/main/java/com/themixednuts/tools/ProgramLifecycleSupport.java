@@ -18,12 +18,88 @@ import ghidra.util.task.TaskMonitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Ghidra import ownership and the handoff from worker-loaded programs to the UI. */
 class ProgramLifecycleSupport {
+  Map<String, Object> closeProgram(
+      Project project, String fileName, PluginTool tool, TaskMonitor monitor) throws Exception {
+    DomainFile file = resolveProgram(project, fileName);
+    ProgramManager manager = tool == null ? null : tool.getService(ProgramManager.class);
+    if (manager == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.of("ProgramManager is unavailable in this tool."));
+    }
+    AtomicReference<Exception> failure = new AtomicReference<>();
+    AtomicReference<String> status = new AtomicReference<>();
+    Swing.runNow(
+        () -> {
+          try {
+            monitor.checkCancelled();
+            Program program =
+                Arrays.stream(manager.getAllOpenPrograms())
+                    .filter(p -> file.equals(p.getDomainFile()))
+                    .findFirst()
+                    .orElse(null);
+            if (program == null) {
+              status.set("already_closed");
+              return;
+            }
+            Object consumer = new Object();
+            if (!program.addConsumer(consumer)) {
+              throw new IllegalStateException("Unable to acquire program ownership for close");
+            }
+            try {
+              if (!program.lock("MCP close unchanged program")) {
+                throw new GhidraMcpException(
+                    GhidraMcpError.failed(
+                        "close program", "A modification is in progress; retry when idle."));
+              }
+              try {
+                if (program.isChanged() || program.isTemporary()) {
+                  throw new GhidraMcpException(
+                      GhidraMcpError.failed(
+                          "close program",
+                          "Unsaved changes or a temporary program; save explicitly before"
+                              + " closing."));
+                }
+                monitor.checkCancelled();
+                // The modification lock and explicit unchanged check make this dialog-free flag
+                // safe.
+                // No discard option is exposed. Keep our consumer until the lock has been released.
+                if (!manager.closeProgram(program, true)
+                    || Arrays.asList(manager.getAllOpenPrograms()).contains(program)) {
+                  throw new GhidraMcpException(
+                      GhidraMcpError.failed(
+                          "close program",
+                          "ProgramManager did not close the program in this tool."));
+                }
+                status.set("closed");
+              } finally {
+                program.unlock();
+              }
+            } finally {
+              program.release(consumer);
+            }
+          } catch (Exception e) {
+            failure.set(e);
+          }
+        });
+    if (failure.get() != null) throw failure.get();
+    return Map.of(
+        "action",
+        "close_program",
+        "file_name",
+        file.getName(),
+        "project_path",
+        file.getPathname(),
+        "status",
+        status.get());
+  }
+
   BinaryIdentity binaryIdentity(Project project, String fileName, TaskMonitor monitor)
       throws Exception {
     DomainFile file = resolveProgram(project, fileName);
