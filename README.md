@@ -19,12 +19,16 @@ If your browser/GitHub blocks custom URI handlers, use the web fallback:
 
 > Connect Ghidra to MCP-compatible clients
 
+Forked from [the original GhidraMCP repository](https://github.com/themixednuts/GhidraMCP).
+This fork adds program import and opening through MCP. Original authorship and the MIT license
+are retained; upstream release badges above refer to the original project.
+
 Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-server)
 
 ---
 
 ## ✨ Features
-- 14 MCP tools covering analysis, inspection, editing, project workflows, and Version Tracking
+- 15 MCP tools covering analysis, inspection, editing, project workflows, and Version Tracking
 - MCP resources for common program views such as program info, listing, imports/exports, strings, RTTI, and decompilation
 - Built-in MCP prompts and argument completions for common reverse engineering workflows
 - Structured responses with explicit per-call limits and opaque cursors for large datasets
@@ -39,7 +43,7 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 - **Analysis & inspection:** `analyze`, `inspect`, `script_guidance`
 - **Program changes:** `annotate`, `functions`, `symbols`, `data_types`, `memory`, `delete`
 - **Debugging:** `debugger`
-- **Project workflows:** `project`, `batch_operations`
+- **Project workflows:** `project`, `programs`, `batch_operations`
 - **Version tracking:** `vt_sessions`, `vt_operations`
 
 ### Resource Templates
@@ -64,6 +68,10 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 ## 🚀 Installation
 
 Requires Ghidra `12.1.4`.
+
+For this fork's added functionality, build the extension from this checkout using the
+**Building from Source** instructions below and install `target/GhidraMCP-0.9.0.zip`.
+The original project's releases do not include this fork's changes.
 
 1. Download the latest release `zip` file from the
    [Releases](https://github.com/themixednuts/GhidraMCP/releases) page.
@@ -90,6 +98,42 @@ Requires Ghidra `12.1.4`.
 > exact program names available in the current project.
 
 ## ⚙️ Configuration
+
+### Import and open programs (fork addition)
+
+Call the `programs` MCP tool with these arguments, in order:
+
+```json
+{"action":"import_program","path":"E:\\binaries\\client.dll","project_folder":"/","name":"client.dll"}
+```
+
+```json
+{"action":"open_program","file_name":"/client.dll"}
+```
+
+`path` is an absolute local path on the **Ghidra server machine**, not a client upload.
+The active project must be writable and the destination folder must already exist.
+Import chooses Ghidra's best matching loader and default architecture; unsupported formats
+fail rather than guessing a raw binary layout. Only the primary program is saved; dependent
+libraries are not imported. Existing programs are never overwritten: Ghidra adds a unique
+suffix when names collide. Always use the returned `project_path` for the following open call.
+Import does not open the program or start automatic analysis. Run `project` with
+`{"action":"run_analysis","file_name":"client.dll"}` separately when desired.
+
+Opening requires `ProgramManager` in the current CodeBrowser. Bare names must be unique;
+use an absolute project path if multiple folders contain the same filename. The program
+is made visible and active, including when it was already open. Database upgrades are
+not performed automatically. Neither operation is allowed inside `batch_operations`,
+because project-file creation and UI ownership are outside a program transaction.
+
+Install the rebuilt extension, restart Ghidra, and reconnect the MCP client to discover
+the new `programs` tool.
+
+API references: [ProgramLoader](https://ghidra.re/ghidra_docs/api/ghidra/app/util/importer/ProgramLoader.html),
+[Loaded.save](https://ghidra.re/ghidra_docs/api/ghidra/app/util/opinion/Loaded.html),
+and [ProgramManager](https://ghidra.re/ghidra_docs/api/ghidra/app/services/ProgramManager.html).
+
+### Server settings
 
 The GhidraMCP server can be configured through Ghidra's application-level
 settings:
