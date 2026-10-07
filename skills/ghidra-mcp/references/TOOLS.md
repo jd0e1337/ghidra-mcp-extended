@@ -2,6 +2,33 @@
 
 Complete reference for all GhidraMCP tools. Each tool is documented with its operations, parameters, and examples.
 
+## Fork additions: programs and findings
+
+`programs` supports `import_program`, `import_directory`, `open_program`, `close_program`
+and `binary_identity`. Imports use absolute host-local paths and existing `project_folder`
+destinations. Directory import accepts `file_pattern`, `recursive` and `max_files` (default
+100, maximum 500); each file has its own result. Closing refuses unsaved or temporary programs.
+`file_name` selects a unique program name or absolute project path. Import metadata does not
+verify the current source file. `project.analysis_status` reports current activity without
+claiming that a past analysis succeeded.
+
+`findings` supports:
+
+- `export_findings`: requires `file_name`, absolute output `path`, and at least one selection
+  in `function_addresses` or `structure_paths` (maximum 25 each). Output is versioned JSON
+  containing binary identity, signatures, comments, structures, bounded assembly and explicit
+  decompilation status. `overwrite` defaults to false. The output directory must exist.
+- `compare_function`: requires `left_file_name`, `left_address`, `right_file_name` and
+  `right_address` selecting exact entries in different programs. Returns both snapshots and
+  observed equality/differences; unavailable results remain unknown. Absolute entry addresses
+  are excluded from instruction equality; embedded addresses and relocation bytes remain exact.
+  No semantic or ABI compatibility claim is made. VT tools can identify candidate matches;
+  comparison here always uses explicit selections.
+
+Both findings actions accept `timeout` (1–30 seconds per decompilation). Snapshot limits and
+publication/cancellation behavior are documented in the root README. `programs` and `findings`
+must be invoked outside `batch_operations`.
+
 ## Common Parameters
 
 Most tools accept these common parameters:

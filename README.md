@@ -20,7 +20,7 @@ If your browser/GitHub blocks custom URI handlers, use the web fallback:
 > Connect Ghidra to MCP-compatible clients
 
 Forked from [the original GhidraMCP repository](https://github.com/themixednuts/GhidraMCP).
-This fork adds program and directory import, opening/closing, analysis status and binary identity through MCP. Original authorship and the MIT license
+This fork adds program and directory import, opening/closing, analysis status, binary identity, findings export and explicit function comparison through MCP. Original authorship and the MIT license
 are retained; upstream release badges above refer to the original project.
 
 Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-server)
@@ -43,7 +43,7 @@ Related project: [WinDbg MCP Server](https://github.com/themixednuts/windbg-mcp-
 - **Analysis & inspection:** `analyze`, `inspect`, `script_guidance`
 - **Program changes:** `annotate`, `functions`, `symbols`, `data_types`, `memory`, `delete`
 - **Debugging:** `debugger`
-- **Project workflows:** `project`, `programs`, `batch_operations`
+- **Project workflows:** `project`, `programs`, `findings`, `batch_operations`
 - **Version tracking:** `vt_sessions`, `vt_operations`
 
 ### Resource Templates
@@ -214,6 +214,59 @@ Programs held by other tools remain owned by those tools.
 
 API references: [ProgramManager.closeProgram](https://ghidra.re/ghidra_docs/api/ghidra/app/services/ProgramManager.html)
 and [DomainObject modification locks](https://ghidra.re/ghidra_docs/api/ghidra/framework/model/DomainObject.html).
+
+### Findings export and explicit function comparison (stage 3)
+
+The `findings` tool exports a selection as versioned JSON on the Ghidra host:
+
+```json
+{"action":"export_findings","file_name":"/client.dll","function_addresses":["+0x12340"],"structure_paths":["/types/PlayerState"],"path":"E:\\reports\\client-findings.json"}
+```
+
+Select at least one function or structure, with at most 25 of each. Function addresses must
+identify exact entry points; address syntax is shared with `inspect`, including image-base-relative
+offsets. Structure paths are absolute data type paths. The output directory must exist. Existing
+output files are refused by default; `overwrite:true` explicitly enables atomic replacement of
+a regular file. If the filesystem does not support atomic replacement, that operation fails.
+The export is fully captured and serialized before publishing; cancellation before publishing
+leaves existing output intact. A cancellation racing with publication can leave a complete export;
+inspect the destination before retrying. Filesystem output is not transactionally reversible, so
+`findings` is excluded from `batch_operations`.
+
+The JSON includes `schema_version:1`, capture time, program modification number, unsaved-change
+flag, and recorded binary identity. It describes the current Ghidra database, which may include
+unsaved edits, rather than a fresh analysis or verification of the original binary. A modification
+lock protects each capture; an actively modified program is refused. Programs are loaded with
+temporary ownership, released after capture, and not opened in the CodeBrowser.
+
+Function findings include signatures with source type, function and repeatable comments,
+code-unit comments, instruction bytes, assembly and decompiler output. Each listing is bounded
+to 2,000 code units with `listing_truncated` explicit. Structures include size, alignment, packing,
+description and component offsets, lengths, names, type paths, comments and bitfield sizes/offsets;
+referenced types are not recursively exported. Structures over 1,000 components are refused.
+The snapshot text budget is 1,000,000 characters and the serialized export limit is 8 MiB;
+exceeding either fails before publication. Each decompilation has a `completed`, `failed` or
+`timeout` status; failure preserves other observed findings. `timeout` is 1–30 seconds per
+function, defaulting to the smaller of 10 seconds and the configured request timeout.
+
+Compare two deliberately selected functions from different project programs:
+
+```json
+{"action":"compare_function","left_file_name":"/old/client.dll","left_address":"+0x12340","right_file_name":"/new/client.dll","right_address":"+0x12670","timeout":10}
+```
+
+The result contains independently captured `left` and `right` snapshots and exact equality for
+signature, instruction bytes, assembly and decompiler text, together with `observed_differences`
+and `unknown`. Absolute entry addresses are reported separately; instruction equality uses
+entry-relative positions. Embedded addresses, relocation bytes and decompiler identifiers are
+not normalized. Truncated/missing listings and failed decompilations produce unknown equality,
+never a claim that missing outputs match. The result makes no claim of semantic equivalence
+or ABI compatibility. It does not create or apply Version Tracking matches; use `vt_sessions`
+and `vt_operations` for matching workflows, then explicitly select entries here.
+
+API references: [Function signatures and comments](https://ghidra.re/ghidra_docs/api/ghidra/program/model/listing/Function.html),
+[Structure components](https://ghidra.re/ghidra_docs/api/ghidra/program/model/data/Structure.html),
+and [DecompInterface lifecycle](https://ghidra.re/ghidra_docs/api/ghidra/app/decompiler/DecompInterface.html).
 
 ### Server settings
 

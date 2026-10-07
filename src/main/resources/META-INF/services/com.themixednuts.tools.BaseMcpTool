@@ -5,6 +5,7 @@ com.themixednuts.tools.MemoryTool
 com.themixednuts.tools.SymbolsTool
 com.themixednuts.tools.ProjectTool
 com.themixednuts.tools.ProgramsTool
+com.themixednuts.tools.FindingsTool
 com.themixednuts.tools.DebuggerTool
 com.themixednuts.tools.DeleteTool
 com.themixednuts.tools.ExecuteScriptTool

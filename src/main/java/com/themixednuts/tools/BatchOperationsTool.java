@@ -140,13 +140,14 @@ public class BatchOperationsTool extends BaseMcpTool {
       }
 
       // Project files and UI ownership cannot be rolled back by a Program transaction.
-      if (toolInstance instanceof ProgramsTool) {
+      if (toolInstance instanceof ProgramsTool || toolInstance instanceof FindingsTool) {
         return Mono.error(
             new GhidraMcpException(
                 GhidraMcpError.invalid(
                     ARG_TOOL,
                     toolName,
-                    "program lifecycle operations must be called outside batch_operations")));
+                    "program lifecycle and findings operations must be called outside"
+                        + " batch_operations")));
       }
 
       if (!isToolEnabled(toolInstance, options)) {
