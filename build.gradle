@@ -459,6 +459,13 @@ tasks.named('test') {
   exclude '**/headless/**'
 }
 
+tasks.withType(Test).configureEach {
+  // Ghidra VTScore formats then parses decimals; a comma-decimal default locale breaks it.
+  // Keep this isolation in test JVMs rather than changing the user's application locale.
+  systemProperty 'user.language', 'en'
+  systemProperty 'user.country', 'US'
+}
+
 tasks.named('wrapper') {
   distributionType = Wrapper.DistributionType.BIN
 }
