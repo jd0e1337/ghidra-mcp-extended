@@ -7,6 +7,12 @@ and this project adheres to a custom versioning scheme suited for GhidraMCP.
 
 ## [Unreleased]
 
+### Fixed
+- **Open programs from the project window** - `programs.open_program` finds a running
+  ProgramManager, preferring the tool already holding the requested file, or launches
+  a CodeBrowser in the same project when none is available. Cancellation and failed
+  launches do not report success; temporary program ownership is released.
+
 ## [0.9.1] - 2026-10-07
 
 First extended-fork release, forked from [the original GhidraMCP repository](https://github.com/themixednuts/GhidraMCP).

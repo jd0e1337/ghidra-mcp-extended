@@ -12,6 +12,7 @@ import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainFolder;
 import ghidra.framework.model.Project;
 import ghidra.framework.model.ProjectData;
+import ghidra.framework.model.ToolServices;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.util.exception.CancelledException;
@@ -19,7 +20,9 @@ import ghidra.util.task.TaskMonitor;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -132,6 +135,7 @@ class ProgramLifecycleSupportTest {
     when(file.getDomainObject(any(), eq(false), eq(false), same(monitor))).thenReturn(program);
     when(manager.getCurrentProgram()).thenReturn(program);
     when(manager.isVisible(program)).thenReturn(true);
+    when(manager.getAllOpenPrograms()).thenReturn(new Program[0]);
 
     Map<String, Object> result = support.openProgram(project, "/client.dll", tool, monitor);
 
@@ -150,10 +154,174 @@ class ProgramLifecycleSupportTest {
     when(data.getFile("/client.dll")).thenReturn(file);
     when(tool.getService(ProgramManager.class)).thenReturn(manager);
     when(file.getDomainObject(any(), eq(false), eq(false), same(monitor))).thenReturn(program);
+    when(manager.getAllOpenPrograms()).thenReturn(new Program[0]);
 
     assertThrows(
         GhidraMcpException.class, () -> support.openProgram(project, "/client.dll", tool, monitor));
     verify(program).release(any());
+  }
+
+  @Test
+  void projectWindowReusesTheBrowserThatAlreadyOwnsTheFile() throws Exception {
+    ToolServices services = mock(ToolServices.class);
+    PluginTool projectWindow = mock(PluginTool.class);
+    PluginTool emptyBrowser = mock(PluginTool.class);
+    PluginTool owner = mock(PluginTool.class);
+    ProgramManager emptyManager = mock(ProgramManager.class);
+    ProgramManager ownerManager = mock(ProgramManager.class);
+    DomainFile file = programFile("/server.dll");
+    Program program = prepareOpen(file, ownerManager);
+    when(project.getToolServices()).thenReturn(services);
+    when(services.getRunningTools())
+        .thenReturn(new PluginTool[] {projectWindow, emptyBrowser, owner});
+    when(emptyBrowser.getService(ProgramManager.class)).thenReturn(emptyManager);
+    when(emptyManager.getAllOpenPrograms()).thenReturn(new Program[0]);
+    when(owner.getService(ProgramManager.class)).thenReturn(ownerManager);
+    when(ownerManager.getAllOpenPrograms()).thenReturn(new Program[] {program});
+
+    assertEquals(
+        true, support.openProgram(project, "/server.dll", projectWindow, monitor).get("active"));
+
+    verify(ownerManager).setCurrentProgram(program);
+    verify(emptyManager, never()).openProgram(any(Program.class), anyInt());
+    verify(services, never()).launchTool(anyString(), any());
+    verify(program).release(any());
+  }
+
+  @Test
+  void reusesAnEmptyBrowserWithoutLaunchingAnother() throws Exception {
+    ToolServices services = mock(ToolServices.class);
+    PluginTool browser = mock(PluginTool.class);
+    ProgramManager manager = mock(ProgramManager.class);
+    Program program = prepareOpen(programFile("/server.dll"), manager);
+    when(project.getToolServices()).thenReturn(services);
+    when(services.getRunningTools()).thenReturn(new PluginTool[] {browser});
+    when(browser.getService(ProgramManager.class)).thenReturn(manager);
+    when(manager.getAllOpenPrograms()).thenReturn(new Program[0]);
+
+    support.openProgram(project, "/server.dll", null, monitor);
+
+    verify(manager).openProgram(program, ProgramManager.OPEN_CURRENT);
+    verify(services, never()).launchTool(anyString(), any());
+  }
+
+  @Test
+  void launchesCodeBrowserOnSwingOnlyWhenNoProgramManagerExists() throws Exception {
+    ToolServices services = mock(ToolServices.class);
+    PluginTool browser = mock(PluginTool.class);
+    ProgramManager manager = mock(ProgramManager.class);
+    Program program = prepareOpen(programFile("/server.dll"), manager);
+    when(project.getToolServices()).thenReturn(services);
+    when(services.getRunningTools()).thenReturn(new PluginTool[0]);
+    when(services.launchTool(eq("CodeBrowser"), eq(List.of())))
+        .thenAnswer(
+            invocation -> {
+              assertTrue(SwingUtilities.isEventDispatchThread());
+              return browser;
+            });
+    when(browser.getService(ProgramManager.class)).thenReturn(manager);
+    doAnswer(
+            invocation -> {
+              assertTrue(SwingUtilities.isEventDispatchThread());
+              return null;
+            })
+        .when(manager)
+        .setCurrentProgram(program);
+
+    // Ghidra executes Swing.runNow inline in headless tests. Dispatch to the real EDT
+    // here to verify the desktop thread contract independently of that mode.
+    try (var swing = mockStatic(ghidra.util.Swing.class)) {
+      swing
+          .when(() -> ghidra.util.Swing.runNow(any(Runnable.class)))
+          .thenAnswer(
+              invocation -> {
+                SwingUtilities.invokeAndWait(invocation.getArgument(0, Runnable.class));
+                return null;
+              });
+      assertEquals(true, support.openProgram(project, "/server.dll", null, monitor).get("active"));
+    }
+
+    verify(services).launchTool("CodeBrowser", List.of());
+    verify(program).release(any());
+  }
+
+  @Test
+  void failedLaunchOrMissingServiceReleasesLoadedProgram() throws Exception {
+    ToolServices services = mock(ToolServices.class);
+    Program program = prepareOpen(programFile("/server.dll"), mock(ProgramManager.class));
+    when(project.getToolServices()).thenReturn(services);
+    when(services.getRunningTools()).thenReturn(new PluginTool[0]);
+    assertThrows(
+        GhidraMcpException.class, () -> support.openProgram(project, "/server.dll", null, monitor));
+    when(services.launchTool(eq("CodeBrowser"), any())).thenReturn(mock(PluginTool.class));
+    assertThrows(
+        GhidraMcpException.class, () -> support.openProgram(project, "/server.dll", null, monitor));
+    verify(program, times(2)).release(any());
+  }
+
+  @Test
+  void invalidFileAndCancellationDoNotLaunchBrowser() throws Exception {
+    ToolServices services = mock(ToolServices.class);
+    when(project.getToolServices()).thenReturn(services);
+    assertThrows(
+        GhidraMcpException.class, () -> support.openProgram(project, "/missing", null, monitor));
+    Program program = prepareOpen(programFile("/server.dll"), mock(ProgramManager.class));
+    DomainFile file = data.getFile("/server.dll");
+    when(file.getDomainObject(any(), eq(false), eq(false), same(monitor)))
+        .thenAnswer(
+            invocation -> {
+              doThrow(new CancelledException()).when(monitor).checkCancelled();
+              return program;
+            });
+    assertThrows(
+        CancelledException.class, () -> support.openProgram(project, "/server.dll", null, monitor));
+    verifyNoInteractions(services);
+    verify(program).release(any());
+  }
+
+  @Test
+  void cancellationAfterLaunchDoesNotOpenProgramOrCloseTheReturnedTool() throws Exception {
+    ToolServices services = mock(ToolServices.class);
+    PluginTool browser = mock(PluginTool.class);
+    ProgramManager manager = mock(ProgramManager.class);
+    Program program = prepareOpen(programFile("/server.dll"), manager);
+    when(project.getToolServices()).thenReturn(services);
+    when(services.getRunningTools()).thenReturn(new PluginTool[0]);
+    when(browser.getService(ProgramManager.class)).thenReturn(manager);
+    when(services.launchTool(eq("CodeBrowser"), any()))
+        .thenAnswer(
+            invocation -> {
+              doThrow(new CancelledException()).when(monitor).checkCancelled();
+              return browser;
+            });
+
+    assertThrows(
+        CancelledException.class, () -> support.openProgram(project, "/server.dll", null, monitor));
+
+    verify(manager, never()).openProgram(any(Program.class), anyInt());
+    verify(services, never()).closeTool(any());
+    verify(program).release(any());
+  }
+
+  @Test
+  void missingProjectToolServicesReleasesOwnershipAndReportsTheCause() throws Exception {
+    Program program = prepareOpen(programFile("/server.dll"), mock(ProgramManager.class));
+    GhidraMcpException failure =
+        assertThrows(
+            GhidraMcpException.class,
+            () -> support.openProgram(project, "/server.dll", null, monitor));
+    assertTrue(failure.getMessage().contains("ToolServices are unavailable"));
+    verify(program).release(any());
+  }
+
+  private Program prepareOpen(DomainFile file, ProgramManager manager) throws Exception {
+    Program program = mock(Program.class);
+    when(data.getFile(file.getPathname())).thenReturn(file);
+    when(file.getDomainObject(any(), eq(false), eq(false), same(monitor))).thenReturn(program);
+    when(program.getDomainFile()).thenReturn(file);
+    when(manager.getCurrentProgram()).thenReturn(program);
+    when(manager.isVisible(program)).thenReturn(true);
+    return program;
   }
 
   @Test

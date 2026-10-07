@@ -11,6 +11,7 @@ import ghidra.app.util.opinion.LoadResults;
 import ghidra.framework.model.DomainFile;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.model.Project;
+import ghidra.framework.model.ToolServices;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Swing;
@@ -172,11 +173,6 @@ class ProgramLifecycleSupport {
 
   Map<String, Object> openProgram(
       Project project, String fileName, PluginTool tool, TaskMonitor monitor) throws Exception {
-    ProgramManager manager = tool == null ? null : tool.getService(ProgramManager.class);
-    if (manager == null) {
-      throw new GhidraMcpException(
-          GhidraMcpError.of("ProgramManager is unavailable; enable this tool in a CodeBrowser."));
-    }
     DomainFile file = resolveProgram(project, fileName);
     monitor.checkCancelled();
     Object consumer = new Object();
@@ -187,7 +183,7 @@ class ProgramLifecycleSupport {
         throw invalid("file_name", fileName, "must identify a Program");
       }
       monitor.checkCancelled();
-      showProgram(manager, program);
+      showProgram(project, tool, program, monitor);
       return Map.of(
           "action",
           "open_program",
@@ -227,11 +223,50 @@ class ProgramLifecycleSupport {
     return file;
   }
 
-  void showProgram(ProgramManager manager, Program program) throws GhidraMcpException {
+  /** Called on Swing: prefer an existing owner, then another program-capable tool. */
+  private ProgramManager findOrLaunchManager(Project project, PluginTool tool, Program program)
+      throws GhidraMcpException {
+    List<ProgramManager> managers = new ArrayList<>();
+    ProgramManager current = tool == null ? null : tool.getService(ProgramManager.class);
+    if (current != null) managers.add(current);
+    ToolServices services = project.getToolServices();
+    if (services != null) {
+      for (PluginTool running : services.getRunningTools()) {
+        ProgramManager manager = running.getService(ProgramManager.class);
+        if (manager != null && !managers.contains(manager)) managers.add(manager);
+      }
+    }
+    for (ProgramManager manager : managers) {
+      for (Program open : manager.getAllOpenPrograms()) {
+        if (program.getDomainFile().equals(open.getDomainFile())) return manager;
+      }
+    }
+    if (!managers.isEmpty()) return managers.getFirst();
+    if (services == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.failed("open program", "Project ToolServices are unavailable."));
+    }
+    // Launch empty: database loading remains off Swing, without upgrade/analysis dialogs.
+    // ToolServices may reuse an instance; never dispose the returned tool on a later failure.
+    PluginTool browser = services.launchTool("CodeBrowser", List.of());
+    ProgramManager manager = browser == null ? null : browser.getService(ProgramManager.class);
+    if (manager == null) {
+      throw new GhidraMcpException(
+          GhidraMcpError.failed(
+              "open program", "Unable to launch a CodeBrowser with ProgramManager."));
+    }
+    return manager;
+  }
+
+  void showProgram(Project project, PluginTool tool, Program program, TaskMonitor monitor)
+      throws Exception {
     AtomicReference<Exception> failure = new AtomicReference<>();
     Swing.runNow(
         () -> {
           try {
+            monitor.checkCancelled();
+            ProgramManager manager = findOrLaunchManager(project, tool, program);
+            monitor.checkCancelled();
             manager.openProgram(program, ProgramManager.OPEN_CURRENT);
             // OPEN_CURRENT alone does not activate an already-open program.
             manager.setCurrentProgram(program);
@@ -244,6 +279,7 @@ class ProgramLifecycleSupport {
           }
         });
     if (failure.get() != null) {
+      if (failure.get() instanceof ghidra.util.exception.CancelledException) throw failure.get();
       throw new GhidraMcpException(
           GhidraMcpError.failed("open program", failure.get().getMessage()), failure.get());
     }

@@ -120,7 +120,12 @@ suffix when names collide. Always use the returned `project_path` for the follow
 Import does not open the program or start automatic analysis. Run `project` with
 `{"action":"run_analysis","file_name":"client.dll"}` separately when desired.
 
-Opening requires `ProgramManager` in the current CodeBrowser. Bare names must be unique;
+Opening works from the MCP's project window: it prefers a running CodeBrowser that
+already owns the file, then reuses another tool with `ProgramManager`. If none exists,
+it launches the `CodeBrowser` tool template in the same project through Ghidra's
+`ToolServices`. A missing template or ProgramManager is reported as an error.
+Tool selection, launch and activation run on Swing; database loading stays on the worker.
+Bare names must be unique;
 use an absolute project path if multiple folders contain the same filename. The program
 is made visible and active, including when it was already open. Database upgrades are
 not performed automatically. Neither operation is allowed inside `batch_operations`,

@@ -19,14 +19,15 @@ import reactor.core.publisher.Mono;
     openWorldHint = true,
     mcpDescription =
         """
-        Manage project programs. import_program requires an absolute host-local file path;
-        optional name and project_folder select the saved name and existing folder. import_directory
-        takes a directory path, file_pattern glob, recursive and max_files (default 100, max 500).
-        Imports save primary programs without opening/analyzing, never overwrite, and report each
-        file and partial cancellation. open_program activates file_name (unique name or project
-        path). close_program closes file_name only when unchanged; no save/discard dialog.
-        binary_identity reads recorded import hash and current architecture; missing/invalid values
-        are explicit, source files are not verified. Use ghidra://programs and project.run_analysis.
+        Manage project programs. import_program takes an absolute host-local path, optional
+        name and existing project_folder. import_directory takes path, file_pattern, recursive
+        and max_files (default 100, max 500). Imports save primary programs without opening or
+        analysis, never overwrite, and report per-file results and cancellation.
+        open_program activates file_name (unique name or project path), reusing a program-capable
+        tool or launching CodeBrowser if needed.
+        close_program closes file_name only when unchanged; no save/discard dialog.
+        binary_identity reads import hash and architecture; missing/invalid values are explicit,
+        source files are not verified. Use ghidra://programs and project.run_analysis.
         Not supported inside batch_operations.
         """)
 public class ProgramsTool extends BaseMcpTool {
